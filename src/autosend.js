@@ -14,7 +14,9 @@
     "it may be a few keywords, a site name or a full question. Search the web unless " +
     "the answer can't have changed recently. Lead with the answer in a sentence or two, " +
     "then the most useful results as a short list of links, each with a line on what " +
-    "it is. If I'm clearly just trying to get to a site, give me its link first. " +
+    "it is. Link inline as well: wherever the text names a page, product, person or " +
+    "source, make that name the hyperlink, so I can click straight from the sentence. " +
+    "If I'm clearly just trying to get to a site, give me its link first. " +
     "Don't ask what I meant; go with the most likely reading and mention the others " +
     "only if they'd change the answer.\n\n" +
     "Search query: ";
