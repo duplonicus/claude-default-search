@@ -1,8 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Claude as Default Search",
-  "version": "3.2",
-  "description": "Address-bar searches go to Claude (Sonnet) and send automatically. Remove the extension to undo.",
+  "version": "3.3",
+  "description": "Address-bar searches go to Claude (Sonnet) and send automatically. Right-click selected text to search, ask or summarize. Remove the extension to undo.",
+  "permissions": [
+    "contextMenus",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "chrome_settings_overrides": {
     "search_provider": {
       "name": "Claude",
@@ -20,6 +31,7 @@
         "https://claude.ai/project/*"
       ],
       "js": [
+        "defaults.js",
         "autosend.js"
       ],
       "run_at": "document_start"

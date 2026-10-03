@@ -19,10 +19,10 @@ if (Test-Path $envFile) {
   }
 }
 New-Item -ItemType Directory -Force -Path "$PSScriptRoot\extension" | Out-Null
-foreach ($f in "manifest.json", "autosend.js") {
-  $text = (Get-Content "$PSScriptRoot\src\$f" -Raw -Encoding UTF8).Replace("__TOKEN__", $token).Replace("__PROJECT__", $project)
+foreach ($f in Get-ChildItem "$PSScriptRoot\src" -File) {
+  $text = (Get-Content $f.FullName -Raw -Encoding UTF8).Replace("__TOKEN__", $token).Replace("__PROJECT__", $project)
   # WriteAllText writes UTF-8 without a byte-order mark, which Set-Content would add.
-  [System.IO.File]::WriteAllText("$PSScriptRoot\extension\$f", $text)
+  [System.IO.File]::WriteAllText("$PSScriptRoot\extension\$($f.Name)", $text)
 }
 if ($project -ne "__PROJECT__") {
   Write-Host "Searches will start in claude.ai project $project."
