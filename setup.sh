@@ -14,8 +14,8 @@ if [ -f .env ]; then
   fi
 fi
 mkdir -p extension
-for f in manifest.json autosend.js background.js; do
-  sed -e "s/__TOKEN__/$token/" -e "s/__PROJECT__/${project:-__PROJECT__}/" "src/$f" > "extension/$f"
+for f in src/*; do
+  sed -e "s/__TOKEN__/$token/" -e "s/__PROJECT__/${project:-__PROJECT__}/" "$f" > "extension/$(basename "$f")"
 done
 if [ -n "$project" ]; then
   echo "Searches will start in claude.ai project $project."

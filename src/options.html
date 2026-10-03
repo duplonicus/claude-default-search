@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Claude as Default Search: options</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; }
+  label { display: block; font-weight: 600; margin-top: 1.5rem; }
+  .hint { margin: 0.2rem 0 0.4rem; opacity: 0.75; }
+  input, textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 0.5rem; }
+  textarea { height: 11rem; resize: vertical; }
+  #preamble { height: 17rem; }
+  .buttons { margin-top: 1.5rem; display: flex; gap: 0.75rem; align-items: center; }
+  button { font: inherit; padding: 0.4rem 1rem; }
+  #status[data-kind="error"] { color: #c0392b; }
+</style>
+</head>
+<body>
+<h1>Claude as Default Search</h1>
+<p>Leave a box empty to use the built-in default.</p>
+
+<label for="projectUrl">Project link</label>
+<p class="hint">Searches and right-click requests start inside this claude.ai project. Empty means the
+project chosen at setup, or ordinary chats if there was none.</p>
+<input id="projectUrl" type="url" spellcheck="false">
+
+<label for="preamble">Search prompt</label>
+<p class="hint">Sent with every address-bar search. <code>{query}</code> is what you typed.</p>
+<textarea id="preamble"></textarea>
+
+<label for="ask">Right-click: Ask about this</label>
+<p class="hint"><code>{text}</code> is the text you selected; <code>{url}</code> is the page it was on.</p>
+<textarea id="ask"></textarea>
+
+<label for="summarize">Right-click: Summarize</label>
+<p class="hint">Same placeholders as above.</p>
+<textarea id="summarize"></textarea>
+
+<div class="buttons">
+  <button id="save">Save</button>
+  <button id="reset">Reset to defaults</button>
+  <span id="status" role="status"></span>
+</div>
+<script src="defaults.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

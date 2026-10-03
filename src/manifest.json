@@ -10,6 +10,10 @@
   "background": {
     "service_worker": "background.js"
   },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "chrome_settings_overrides": {
     "search_provider": {
       "name": "Claude",
@@ -27,6 +31,7 @@
         "https://claude.ai/project/*"
       ],
       "js": [
+        "defaults.js",
         "autosend.js"
       ],
       "run_at": "document_start"

@@ -33,12 +33,14 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   chrome.tabs.create({ url: url.href, ...(tab ? { index: tab.index + 1, openerTabId: tab.id } : {}) });
 });
 
+// The new tab asks for its text, then says when it has been sent. Until then the
+// text stays, so the tab can move to the project page or back without losing it.
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
-  if (!msg || msg.type !== "dupjob" || sender.id !== chrome.runtime.id) return;
+  if (!msg || sender.id !== chrome.runtime.id) return;
   const key = "job-" + msg.id;
-  chrome.storage.session.get(key).then((found) => {
-    chrome.storage.session.remove(key);
-    reply(found[key] || null);
-  });
-  return true;
+  if (msg.type === "dupjob") {
+    chrome.storage.session.get(key).then((found) => reply(found[key] || null));
+    return true;
+  }
+  if (msg.type === "dupjob-done") chrome.storage.session.remove(key);
 });

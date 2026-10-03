@@ -1,42 +1,13 @@
 // Claude as Default Search, v3.3.
 // Address-bar searches carry a secret token. Links from anywhere else don't,
 // so Claude's normal "use caution" stop still applies to them.
+// The prompts and the project come from defaults.js and the options page.
 (() => {
   const TOKEN = "__TOKEN__";
   const WANT_ID = "claude-sonnet-5-5"; // model for quick searches
   const WANT_NAME = "Sonnet";
   const USUAL_KEY = "dupsearch-usual-model";
   const MISS_KEY = "dupsearch-project-miss";
-  // Optional: the id of a claude.ai project to file searches in.
-  const PROJECT = "__PROJECT__";
-  const HAS_PROJECT = /^[0-9a-f-]{36}$/.test(PROJECT);
-  // Goes in front of every search, so the model knows it's being used as a
-  // search engine and isn't handed two bare words with no context.
-  const PREAMBLE =
-    "I typed the text below into my browser's address bar, which sends my searches " +
-    "to you instead of a search engine. Treat it as a search query, not a chat message: " +
-    "it may be a few keywords, a site name or a full question. Search the web unless " +
-    "the answer can't have changed recently. Lead with the answer in a sentence or two, " +
-    "then the most useful results as a short list of links, each with a line on what " +
-    "it is. Link inline as well: wherever the text names a page, product, person or " +
-    "source, make that name the hyperlink, so I can click straight from the sentence. " +
-    "If I'm clearly just trying to get to a site, give me its link first. " +
-    "Don't ask what I meant; go with the most likely reading and mention the others " +
-    "only if they'd change the answer.\n\n" +
-    "Search query: ";
-  // Right-click menu on selected text. Both are sent straight away, on Sonnet.
-  const JOBS = {
-    summarize: (j) =>
-      "Summarize the text below, which I selected on a web page. Give the main point " +
-      "in a sentence or two, then the key details as a short list. Work only from this " +
-      "text; don't look the page up.\n\n" +
-      "From: " + j.url + "\n\n" + j.text,
-    ask: (j) =>
-      "Explain the text below, which I selected on a web page. If it's a question, " +
-      "answer it; if it's in another language, translate it. Lead with the answer in a " +
-      "sentence or two and keep it brief.\n\n" +
-      "From: " + j.url + "\n\n" + j.text,
-  };
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   async function waitFor(fn, timeout = 15000, every = 50) {
@@ -77,6 +48,15 @@
       credentials: "include",
       body: JSON.stringify({ model: id }),
     }).then((r) => r.ok).catch(() => false);
+  }
+
+  // What the options page saved, with defaults.js filling the gaps.
+  async function settings() {
+    let saved = {};
+    try { saved = await chrome.storage.local.get(["preamble", "ask", "summarize", "projectUrl"]); } catch {}
+    const pick = (k) => (typeof saved[k] === "string" && saved[k].trim() ? saved[k] : DEFAULTS[k]);
+    const project = (String(saved.projectUrl || "").match(PROJECT_ID) || BUILT_PROJECT.match(PROJECT_ID) || [""])[0];
+    return { preamble: pick("preamble"), jobs: { ask: pick("ask"), summarize: pick("summarize") }, project };
   }
 
   const promptBox = () =>
@@ -126,7 +106,7 @@
   // Switches the account to Sonnet, sends whatever getBox() puts in the prompt,
   // then puts your usual model back once the chat exists.
   const ABORT = {};
-  async function sendOnSonnet(getBox) {
+  async function sendOnSonnet(getBox, onSent) {
     const usual = store.get() || "claude-opus-5-5";
     await setAccountModel(WANT_ID);
     const box = await getBox();
@@ -147,7 +127,7 @@
         await waitFor(() => (pickerLabel() || "").includes(WANT_NAME), 2000);
       }
     }
-    if (send) send.click();
+    if (send) { send.click(); if (onSent) onSent(); }
 
     await waitFor(() => location.pathname.startsWith("/chat/"), 8000, 100);
     await sleep(1000);
@@ -155,26 +135,11 @@
   }
 
   const url = new URL(location.href);
-
-  // Right-click menu: the background script holds the selected text under a
-  // one-time id and opens this page with that id. A link from anywhere else
-  // has no text waiting for it, so nothing happens.
   const jobId = url.searchParams.get("dupjob");
-  if (jobId) {
-    (async () => {
-      let job = null;
-      try { job = await chrome.runtime.sendMessage({ type: "dupjob", id: jobId }); } catch {}
-      const prompt = job && JOBS[job.mode];
-      if (!prompt) return;
-      sendOnSonnet(() => typePrompt(prompt(job)));
-    })();
-    return;
-  }
-
   const isSearch = url.searchParams.get("dupsearch") === TOKEN;
 
   // Normal visits: just note which model you usually use, so searches can put it back.
-  if (!isSearch) {
+  if (!jobId && !isSearch) {
     waitFor(pickerLabel, 15000, 250).then((l) => {
       const id = idFromLabel(l);
       if (id && !l.includes(WANT_NAME)) store.set(id);
@@ -182,39 +147,64 @@
     return;
   }
 
-  // Searches arrive as the bare query. Reload once with the preamble in front;
-  // claude.ai fills the prompt from the URL, so that is the place to add it.
-  // With a project set, that reload goes to the project's page instead of /new,
-  // so the chat starts inside the project.
-  const searchUrl = (path, query) => {
+  const link = (path, params) => {
     const u = new URL(path, location.origin);
-    u.searchParams.set("q", query);
-    u.searchParams.set("dupsearch", TOKEN);
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
     return u.href;
   };
-  const q = url.searchParams.get("q") || "";
   const onProject = location.pathname.startsWith("/project/");
-  if (q && !q.startsWith(PREAMBLE)) {
-    location.replace(searchUrl(HAS_PROJECT ? "/project/" + PROJECT : "/new", PREAMBLE + q));
-    return;
+  // A project page doesn't fill the prompt from the URL, so type it there. If
+  // that fails, note what was on the page and carry on from /new instead.
+  async function typeOnProject(text, fallback) {
+    const box = await typePrompt(text);
+    if (box) return box;
+    const seen = [...document.querySelectorAll('[contenteditable="true"], textarea')]
+      .map((e) => (ariaLabel(e) || e.tagName) + ((e.innerText || e.value || "").trim() ? " (filled)" : " (empty)"));
+    try { localStorage.setItem(MISS_KEY, new Date().toISOString() + " tried: " + ([...new Set(typed)].join(", ") || "nothing") + "; inputs: " + (seen.join("; ") || "none")); } catch {}
+    location.replace(fallback);
+    return ABORT;
   }
 
-  // Searches: switch the account to Sonnet before claude.ai loads its settings,
-  // so the page opens on Sonnet with no clicking.
-  sendOnSonnet(async () => {
-    // /new fills the prompt from the URL; a project page doesn't, so type it there.
-    const box = onProject
-      ? await typePrompt(q)
-      : await waitFor(() => { const b = promptBox(); return b && b.innerText.trim() ? b : null; });
-    // Couldn't type into the project page: note what was there, then run the
-    // search from /new so it still goes through.
-    if (!box && onProject) {
-      const seen = [...document.querySelectorAll('[contenteditable="true"], textarea')]
-        .map((e) => (ariaLabel(e) || e.tagName) + ((e.innerText || e.value || "").trim() ? " (filled)" : " (empty)"));
-      try { localStorage.setItem(MISS_KEY, new Date().toISOString() + " tried: " + ([...new Set(typed)].join(", ") || "nothing") + "; inputs: " + (seen.join("; ") || "none")); } catch {}
-      location.replace(searchUrl("/new", q));
-      return ABORT;
+  (async () => {
+    const cfg = await settings();
+    // "dupdirect" marks a page that should be used as it is: the prompt is
+    // ready, or the project page has already been tried.
+    const direct = url.searchParams.get("dupdirect") === "1";
+    const home = cfg.project ? "/project/" + cfg.project : "/new";
+
+    // Right-click menu: the background script holds the selected text under a
+    // one-time id and opens /new with that id. A link from anywhere else has
+    // no text waiting for it, so nothing happens.
+    if (jobId) {
+      if (cfg.project && !onProject && !direct) {
+        location.replace(link(home, { dupjob: jobId }));
+        return;
+      }
+      let job = null;
+      try { job = await chrome.runtime.sendMessage({ type: "dupjob", id: jobId }); } catch {}
+      const template = job && cfg.jobs[job.mode];
+      if (!template) return;
+      const text = fillPrompt(template, "text", { text: job.text, url: job.url });
+      sendOnSonnet(
+        () => (onProject ? typeOnProject(text, link("/new", { dupjob: jobId, dupdirect: 1 })) : typePrompt(text)),
+        () => { try { chrome.runtime.sendMessage({ type: "dupjob-done", id: jobId }); } catch {} }
+      );
+      return;
     }
-    return box;
-  });
+
+    // Searches arrive as the bare query. Reload once with the preamble in front;
+    // claude.ai fills the prompt from the URL, so that is the place to add it.
+    // With a project set, that reload goes to the project's page instead of /new,
+    // so the chat starts inside the project.
+    const q = url.searchParams.get("q") || "";
+    if (!q) return;
+    if (!direct) {
+      const prompt = fillPrompt(cfg.preamble, "query", { query: q });
+      location.replace(link(home, { q: prompt, dupsearch: TOKEN, dupdirect: 1 }));
+      return;
+    }
+    sendOnSonnet(() => (onProject
+      ? typeOnProject(q, link("/new", { q, dupsearch: TOKEN, dupdirect: 1 }))
+      : waitFor(() => { const b = promptBox(); return b && b.innerText.trim() ? b : null; })));
+  })();
 })();
