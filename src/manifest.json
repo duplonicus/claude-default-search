@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Claude as Default Search",
-  "version": "3.1",
+  "version": "3.2",
   "description": "Address-bar searches go to Claude (Sonnet) and send automatically. Remove the extension to undo.",
   "chrome_settings_overrides": {
     "search_provider": {

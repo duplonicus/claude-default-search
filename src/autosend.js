@@ -1,4 +1,4 @@
-// Claude as Default Search, v3.1.
+// Claude as Default Search, v3.2.
 // Address-bar searches carry a secret token. Links from anywhere else don't,
 // so Claude's normal "use caution" stop still applies to them.
 (() => {
