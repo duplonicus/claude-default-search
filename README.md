@@ -43,14 +43,7 @@ Address-bar searches carry their own instructions, so the project needs no setup
 search by typing straight into the project on claude.ai, paste this into the project's instructions:
 
 ```
-Chats in this project are web searches. Treat the first message of each chat as a search query, not a
-chat message: it may be a few keywords, a site name or a full question. Search the web unless the answer
-can't have changed recently. Lead with the answer in a sentence or two, then the most useful results as a
-short list of links, each with a line on what it is. Link inline as well: wherever the text names a page,
-product, person or source, make that name the hyperlink, so I can click straight from the sentence. If
-I'm clearly just trying to get to a site, give me its link first. Don't ask what I meant; go with the
-most likely reading and mention the others only if they'd change the answer. Later messages in the same
-chat are ordinary follow-ups about the results.
+Chats in this project are web searches. Treat the first message of each chat as a search query, not a chat message: it may be a few keywords, a site name or a full question. Search the web unless the answer can't have changed recently. Lead with the answer in a sentence or two, then the most useful results as a short list of links, each with a line on what it is. Link inline as well: wherever the text names a page, product, person or source, make that name the hyperlink, so I can click straight from the sentence. If I'm clearly just trying to get to a site, give me its link first. Don't ask what I meant; go with the most likely reading and mention the others only if they'd change the answer. Later messages in the same chat are ordinary follow-ups about the results.
 ```
 
 ## How it works
