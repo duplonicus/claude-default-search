@@ -35,14 +35,17 @@ To undo everything, remove the extension.
 `autosend.js` runs on `claude.ai/new`:
 
 1. **Normal visits:** notes which model your picker is on (your "usual" model), stored in claude.ai's localStorage.
-2. **Searches (secret code present):** at page start, sets your claude.ai model choice to Sonnet with the same
-   request the model picker makes (`PATCH /api/organizations/<org>/model_selector_state/chat`), so the page
-   opens on Sonnet with no clicking. If it still opens on another model, it falls back to clicking the picker.
-3. Clicks **Send** as soon as the prompt is filled in.
-4. About a second after the chat is created, sets your model choice back to your usual model.
+2. **Searches (secret code present):** reloads the page once with a short preamble in front of your query,
+   telling Claude the text came from the address bar and should be handled as a web search: answer first,
+   then links. Without it, Claude gets two bare keywords and has to guess what you want.
+3. At page start, sets your claude.ai model choice to Sonnet with the same request the model picker makes
+   (`PATCH /api/organizations/<org>/model_selector_state/chat`), so the page opens on Sonnet with no clicking.
+   If it still opens on another model, it falls back to clicking the picker.
+4. Clicks **Send** as soon as the prompt is filled in.
+5. About a second after the chat is created, sets your model choice back to your usual model.
 
-To use a different model for searches, change `WANT_ID` and `WANT_NAME` at the top of `src/autosend.js`
-and run setup again.
+To change the preamble or the search model, edit `PREAMBLE`, `WANT_ID` and `WANT_NAME` at the top of
+`src/autosend.js` and run setup again.
 
 ## Security
 
@@ -58,4 +61,5 @@ and run setup again.
   If claude.ai changes those, auto-send or the model switch can stop working. The search itself still
   lands in Claude; you just press Enter.
 - Search-to-send takes about 2 seconds, mostly claude.ai loading.
+- The preamble is part of the message, so it shows above your query in the chat.
 - If you open a new chat within about a second of a search, it may start on Sonnet.

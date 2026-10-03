@@ -1,4 +1,4 @@
-// Claude as Default Search, v3.
+// Claude as Default Search, v3.1.
 // Address-bar searches carry a secret token. Links from anywhere else don't,
 // so Claude's normal "use caution" stop still applies to them.
 (() => {
@@ -6,6 +6,18 @@
   const WANT_ID = "claude-sonnet-5-5"; // model for quick searches
   const WANT_NAME = "Sonnet";
   const USUAL_KEY = "dupsearch-usual-model";
+  // Goes in front of every search, so the model knows it's being used as a
+  // search engine and isn't handed two bare words with no context.
+  const PREAMBLE =
+    "I typed the text below into my browser's address bar, which sends my searches " +
+    "to you instead of a search engine. Treat it as a search query, not a chat message: " +
+    "it may be a few keywords, a site name or a full question. Search the web unless " +
+    "the answer can't have changed recently. Lead with the answer in a sentence or two, " +
+    "then the most useful results as a short list of links, each with a line on what " +
+    "it is. If I'm clearly just trying to get to a site, give me its link first. " +
+    "Don't ask what I meant; go with the most likely reading and mention the others " +
+    "only if they'd change the answer.\n\n" +
+    "Search query: ";
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   async function waitFor(fn, timeout = 15000, every = 50) {
@@ -48,7 +60,8 @@
     }).then((r) => r.ok).catch(() => false);
   }
 
-  const isSearch = new URL(location.href).searchParams.get("dupsearch") === TOKEN;
+  const url = new URL(location.href);
+  const isSearch = url.searchParams.get("dupsearch") === TOKEN;
 
   // Normal visits: just note which model you usually use, so searches can put it back.
   if (!isSearch) {
@@ -56,6 +69,15 @@
       const id = idFromLabel(l);
       if (id && !l.includes(WANT_NAME)) store.set(id);
     });
+    return;
+  }
+
+  // Searches arrive as the bare query. Reload once with the preamble in front;
+  // claude.ai fills the prompt from the URL, so that is the place to add it.
+  const q = url.searchParams.get("q") || "";
+  if (q && !q.startsWith(PREAMBLE)) {
+    url.searchParams.set("q", PREAMBLE + q);
+    location.replace(url.href);
     return;
   }
 
