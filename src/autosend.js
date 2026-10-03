@@ -66,6 +66,39 @@
     }).then((r) => r.ok).catch(() => false);
   }
 
+  const promptBox = () =>
+    [...document.querySelectorAll('[aria-label="Write your prompt to Claude"]')]
+      .find((e) => e.offsetParent !== null);
+  // Types the prompt into the box the way a keyboard or a paste would, so the
+  // page's editor registers it. Returns the box once the text has stuck.
+  const typed = [];
+  async function typePrompt(text, timeout = 10000) {
+    const line = text.replace(/\s*\n+\s*/g, " ");
+    const has = (b) => b && b.innerText.includes(line.slice(0, 40));
+    const end = Date.now() + timeout;
+    while (Date.now() < end) {
+      const box = promptBox();
+      if (box && !has(box)) {
+        box.focus();
+        if (box.contains(document.activeElement)) {
+          document.execCommand("selectAll");
+          document.execCommand("insertText", false, line);
+          typed.push("insertText");
+        }
+        if (!has(box)) {
+          const data = new DataTransfer();
+          data.setData("text/plain", line);
+          box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+          typed.push("paste");
+        }
+      }
+      // The page can wipe the box while it finishes loading; make sure it held.
+      await sleep(250);
+      if (has(promptBox())) return promptBox();
+    }
+    return null;
+  }
+
   const url = new URL(location.href);
   const isSearch = url.searchParams.get("dupsearch") === TOKEN;
 
@@ -102,17 +135,16 @@
 
   (async () => {
     await preset;
-    const box = await waitFor(() =>
-      [...document.querySelectorAll('[aria-label="Write your prompt to Claude"]')]
-        .find((e) => e.offsetParent !== null && e.innerText.trim()),
-      onProject ? 6000 : 15000
-    );
-    // The project page didn't fill the prompt: note what was there, then run
-    // the search from /new so it still goes through.
+    // /new fills the prompt from the URL; a project page doesn't, so type it there.
+    const box = onProject
+      ? await typePrompt(q)
+      : await waitFor(() => { const b = promptBox(); return b && b.innerText.trim() ? b : null; });
+    // Couldn't type into the project page: note what was there, then run the
+    // search from /new so it still goes through.
     if (!box && onProject) {
       const seen = [...document.querySelectorAll('[contenteditable="true"], textarea')]
         .map((e) => (ariaLabel(e) || e.tagName) + ((e.innerText || e.value || "").trim() ? " (filled)" : " (empty)"));
-      try { localStorage.setItem(MISS_KEY, new Date().toISOString() + " inputs: " + (seen.join("; ") || "none")); } catch {}
+      try { localStorage.setItem(MISS_KEY, new Date().toISOString() + " tried: " + ([...new Set(typed)].join(", ") || "nothing") + "; inputs: " + (seen.join("; ") || "none")); } catch {}
       location.replace(searchUrl("/new", q));
       return;
     }
