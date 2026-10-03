@@ -1,8 +1,19 @@
 // The prompts the extension sends, and the project it was built with.
 // Change them on the extension's options page; these are what it falls back to.
+// MODELS is what the options page offers: `id` is what claude.ai's model picker
+// stores, `name` is the word to look for in the picker's label.
 // {query} is what you typed; {text} is the text you selected and {url} the page it was on.
 const BUILT_PROJECT = "__PROJECT__";
+const MODELS = [
+  { id: "claude-sonnet-5-5", name: "Sonnet", label: "Sonnet 5.5" },
+  { id: "claude-haiku-4-5", name: "Haiku", label: "Haiku 4.5" },
+  { id: "claude-opus-5-5", name: "Opus", label: "Opus 5.5" },
+  { id: "claude-fable-5-1", name: "Fable", label: "Fable 5.1" },
+];
+const NO_SWITCH = "none"; // saved as the model when searches should use your usual one
 const DEFAULTS = {
+  // The model searches and right-click requests run on.
+  model: "claude-sonnet-5-5",
   // Goes in front of every search, so the model knows it's being used as a
   // search engine and isn't handed two bare words with no context.
   preamble:

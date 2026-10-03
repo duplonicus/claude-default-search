@@ -1,4 +1,4 @@
-// Options page: the project link and the three prompts, kept in the extension's own storage.
+// Options page: the project link, the model and the three prompts, kept in the extension's own storage.
 const PROMPTS = ["preamble", "ask", "summarize"];
 const field = (id) => document.getElementById(id);
 const say = (text, kind = "") => {
@@ -6,8 +6,14 @@ const say = (text, kind = "") => {
   field("status").dataset.kind = kind;
 };
 
+for (const m of [...MODELS, { id: NO_SWITCH, label: "My usual model (don't switch)" }]) {
+  field("model").add(new Option(m.id === DEFAULTS.model ? m.label + " (default)" : m.label, m.id));
+}
+
 async function show() {
-  const saved = await chrome.storage.local.get([...PROMPTS, "projectUrl"]);
+  const saved = await chrome.storage.local.get([...PROMPTS, "projectUrl", "model"]);
+  field("model").value = saved.model || DEFAULTS.model;
+  if (!field("model").value) field("model").value = DEFAULTS.model;
   // A prompt that was never changed shows the default, so there is something to edit.
   for (const k of PROMPTS) field(k).value = saved[k] || DEFAULTS[k];
   field("projectUrl").value = saved.projectUrl || "";
@@ -23,7 +29,8 @@ field("save").addEventListener("click", async () => {
     say("That link has no project id in it. Expected https://claude.ai/project/<id>.", "error");
     return;
   }
-  const values = { projectUrl };
+  const model = field("model").value;
+  const values = { projectUrl, model: model === DEFAULTS.model ? "" : model };
   // An untouched default isn't saved, so later improvements to the defaults still reach you.
   for (const k of PROMPTS) {
     const text = field(k).value.trim();
@@ -37,7 +44,7 @@ field("save").addEventListener("click", async () => {
 field("reset").addEventListener("click", async () => {
   await chrome.storage.local.remove(PROMPTS);
   await show();
-  say("Prompts reset to the defaults. The project link was kept.");
+  say("Prompts reset to the defaults. The project link and model were kept.");
 });
 
 show();
