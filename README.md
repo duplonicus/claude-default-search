@@ -97,3 +97,16 @@ To change the preamble or the search model, edit `PREAMBLE`, `WANT_ID` and `WANT
 - Search-to-send takes about 2 seconds, mostly claude.ai loading.
 - The preamble is part of the message, so it shows above your query in the chat.
 - If you open a new chat within about a second of a search, it may start on Sonnet.
+
+## Tests
+
+```
+uv venv && uv pip install pytest playwright
+.venv/bin/playwright install chromium
+.venv/bin/python -m pytest tests
+```
+
+The tests run the content script in headless Chromium against a stand-in for claude.ai, and run
+`setup.sh` against each kind of `.env`. They need network access (the stand-in's editor loads from esm.sh).
+They show the script does what it should if claude.ai behaves as it did when they were written; they
+can't tell you when claude.ai changes.
