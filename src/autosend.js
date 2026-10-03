@@ -73,8 +73,8 @@
   // page's editor registers it. Returns the box once the text has stuck.
   const typed = [];
   async function typePrompt(text, timeout = 10000) {
-    const line = text.replace(/\s*\n+\s*/g, " ");
-    const has = (b) => b && b.innerText.includes(line.slice(0, 40));
+    const parts = text.split(/\n\n+/);
+    const has = (b) => b && parts.every((p) => b.innerText.includes(p.slice(0, 40)));
     const end = Date.now() + timeout;
     while (Date.now() < end) {
       const box = promptBox();
@@ -82,12 +82,16 @@
         box.focus();
         if (box.contains(document.activeElement)) {
           document.execCommand("selectAll");
-          document.execCommand("insertText", false, line);
+          parts.forEach((p, i) => {
+            // Two paragraph breaks leave an empty line between the parts.
+            if (i) { document.execCommand("insertParagraph"); document.execCommand("insertParagraph"); }
+            document.execCommand("insertText", false, p);
+          });
           typed.push("insertText");
         }
         if (!has(box)) {
           const data = new DataTransfer();
-          data.setData("text/plain", line);
+          data.setData("text/plain", text);
           box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
           typed.push("paste");
         }
