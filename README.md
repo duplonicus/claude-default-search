@@ -123,9 +123,9 @@ the extension's own storage in your browser.
   under a one-time id, and open `claude.ai/new` with that id. `autosend.js` moves to the project page if
   there is one, collects the text, types the prompt, and sends it on Sonnet.
 
-The model list on the options page is `MODELS` in `src/defaults.js`. Only Sonnet has been tried against
-claude.ai; the others follow the same naming, and if claude.ai doesn't accept one the script falls back to
-clicking the model picker by name.
+The model list on the options page is `MODELS` in `src/defaults.js`. All four were tried against claude.ai
+in October 2026. If claude.ai stops accepting one, the script falls back to clicking the model picker by
+name.
 
 ## Security
 
