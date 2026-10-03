@@ -14,7 +14,7 @@ if [ -f .env ]; then
   fi
 fi
 mkdir -p extension
-for f in manifest.json autosend.js; do
+for f in manifest.json autosend.js background.js; do
   sed -e "s/__TOKEN__/$token/" -e "s/__PROJECT__/${project:-__PROJECT__}/" "src/$f" > "extension/$f"
 done
 if [ -n "$project" ]; then

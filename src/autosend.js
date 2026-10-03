@@ -1,4 +1,4 @@
-// Claude as Default Search, v3.2.
+// Claude as Default Search, v3.3.
 // Address-bar searches carry a secret token. Links from anywhere else don't,
 // so Claude's normal "use caution" stop still applies to them.
 (() => {
@@ -24,6 +24,19 @@
     "Don't ask what I meant; go with the most likely reading and mention the others " +
     "only if they'd change the answer.\n\n" +
     "Search query: ";
+  // Right-click menu on selected text. Both are sent straight away, on Sonnet.
+  const JOBS = {
+    summarize: (j) =>
+      "Summarize the text below, which I selected on a web page. Give the main point " +
+      "in a sentence or two, then the key details as a short list. Work only from this " +
+      "text; don't look the page up.\n\n" +
+      "From: " + j.url + "\n\n" + j.text,
+    ask: (j) =>
+      "Explain the text below, which I selected on a web page. If it's a question, " +
+      "answer it; if it's in another language, translate it. Lead with the answer in a " +
+      "sentence or two and keep it brief.\n\n" +
+      "From: " + j.url + "\n\n" + j.text,
+  };
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   async function waitFor(fn, timeout = 15000, every = 50) {
@@ -73,8 +86,16 @@
   // page's editor registers it. Returns the box once the text has stuck.
   const typed = [];
   async function typePrompt(text, timeout = 10000) {
-    const parts = text.split(/\n\n+/);
-    const has = (b) => b && parts.every((p) => b.innerText.includes(p.slice(0, 40)));
+    // One paragraph per line; an empty line stays as an empty paragraph. Runs of
+    // spaces are collapsed, because the editor would turn them into other characters.
+    const lines = text.replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").split("\n")
+      .map((l) => l.replace(/\s+/g, " "));
+    const marks = lines.map((l) => l.trim().slice(0, 40)).filter(Boolean);
+    const has = (b) => {
+      if (!b) return false;
+      const shown = b.innerText.replace(/\s+/g, " ");
+      return marks.every((m) => shown.includes(m));
+    };
     const end = Date.now() + timeout;
     while (Date.now() < end) {
       const box = promptBox();
@@ -82,10 +103,9 @@
         box.focus();
         if (box.contains(document.activeElement)) {
           document.execCommand("selectAll");
-          parts.forEach((p, i) => {
-            // Two paragraph breaks leave an empty line between the parts.
-            if (i) { document.execCommand("insertParagraph"); document.execCommand("insertParagraph"); }
-            document.execCommand("insertText", false, p);
+          lines.forEach((l, i) => {
+            if (i) document.execCommand("insertParagraph");
+            if (l) document.execCommand("insertText", false, l);
           });
           typed.push("insertText");
         }
@@ -103,7 +123,54 @@
     return null;
   }
 
+  // Switches the account to Sonnet, sends whatever getBox() puts in the prompt,
+  // then puts your usual model back once the chat exists.
+  const ABORT = {};
+  async function sendOnSonnet(getBox) {
+    const usual = store.get() || "claude-opus-5-5";
+    await setAccountModel(WANT_ID);
+    const box = await getBox();
+    if (box === ABORT) return;
+    const send = box && await waitFor(() =>
+      buttons().find((b) => ariaLabel(b) === "Send message" && !b.disabled)
+    );
+
+    // Fallback: if the page still came up on another model, use the picker.
+    if (send && !(pickerLabel() || "").includes(WANT_NAME)) {
+      const p = buttons().find((x) => ariaLabel(x).startsWith("Model:"));
+      if (p) {
+        p.click();
+        const item = await waitFor(() =>
+          [...document.querySelectorAll('[role="menuitemradio"]')]
+            .find((m) => m.textContent.includes(WANT_NAME)), 2000);
+        if (item) item.click();
+        await waitFor(() => (pickerLabel() || "").includes(WANT_NAME), 2000);
+      }
+    }
+    if (send) send.click();
+
+    await waitFor(() => location.pathname.startsWith("/chat/"), 8000, 100);
+    await sleep(1000);
+    await setAccountModel(usual);
+  }
+
   const url = new URL(location.href);
+
+  // Right-click menu: the background script holds the selected text under a
+  // one-time id and opens this page with that id. A link from anywhere else
+  // has no text waiting for it, so nothing happens.
+  const jobId = url.searchParams.get("dupjob");
+  if (jobId) {
+    (async () => {
+      let job = null;
+      try { job = await chrome.runtime.sendMessage({ type: "dupjob", id: jobId }); } catch {}
+      const prompt = job && JOBS[job.mode];
+      if (!prompt) return;
+      sendOnSonnet(() => typePrompt(prompt(job)));
+    })();
+    return;
+  }
+
   const isSearch = url.searchParams.get("dupsearch") === TOKEN;
 
   // Normal visits: just note which model you usually use, so searches can put it back.
@@ -134,11 +201,7 @@
 
   // Searches: switch the account to Sonnet before claude.ai loads its settings,
   // so the page opens on Sonnet with no clicking.
-  const usual = store.get() || "claude-opus-5-5";
-  const preset = setAccountModel(WANT_ID);
-
-  (async () => {
-    await preset;
+  sendOnSonnet(async () => {
     // /new fills the prompt from the URL; a project page doesn't, so type it there.
     const box = onProject
       ? await typePrompt(q)
@@ -150,29 +213,8 @@
         .map((e) => (ariaLabel(e) || e.tagName) + ((e.innerText || e.value || "").trim() ? " (filled)" : " (empty)"));
       try { localStorage.setItem(MISS_KEY, new Date().toISOString() + " tried: " + ([...new Set(typed)].join(", ") || "nothing") + "; inputs: " + (seen.join("; ") || "none")); } catch {}
       location.replace(searchUrl("/new", q));
-      return;
+      return ABORT;
     }
-    const send = box && await waitFor(() =>
-      buttons().find((b) => ariaLabel(b) === "Send message" && !b.disabled)
-    );
-
-    // Fallback: if the page still came up on another model, use the picker.
-    if (send && !(pickerLabel() || "").includes(WANT_NAME)) {
-      const p = buttons().find((x) => ariaLabel(x).startsWith("Model:"));
-      if (p) {
-        p.click();
-        const item = await waitFor(() =>
-          [...document.querySelectorAll('[role="menuitemradio"]')]
-            .find((m) => m.textContent.includes(WANT_NAME)), 2000);
-        if (item) item.click();
-        await waitFor(() => (pickerLabel() || "").includes(WANT_NAME), 2000);
-      }
-    }
-    if (send) send.click();
-
-    // Put your usual model back once the chat exists.
-    await waitFor(() => location.pathname.startsWith("/chat/"), 8000, 100);
-    await sleep(1000);
-    await setAccountModel(usual);
-  })();
+    return box;
+  });
 })();

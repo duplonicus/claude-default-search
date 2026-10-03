@@ -51,11 +51,16 @@ def built(project=None):
 
 
 @pytest.fixture(scope="module")
-def browser():
+def pw():
     with sync_playwright() as p:
-        b = p.chromium.launch()
-        yield b
-        b.close()
+        yield p
+
+
+@pytest.fixture(scope="module")
+def browser(pw):
+    b = pw.chromium.launch()
+    yield b
+    b.close()
 
 
 @pytest.fixture(scope="module")
@@ -158,10 +163,12 @@ def test_setup_sh_bakes_in_the_project_only_when_set(tmp_path, env, expected):
     js = (tmp_path / "extension" / "autosend.js").read_text()
     manifest = (tmp_path / "extension" / "manifest.json").read_text()
     assert re.search(r'const PROJECT = "([^"]*)"', js).group(1) == expected
+    background = (tmp_path / "extension" / "background.js").read_text()
     token = re.search(r'const TOKEN = "([^"]*)"', js).group(1)
     assert re.fullmatch(r"[0-9a-f]{24}", token)
     assert json.loads(manifest)["chrome_settings_overrides"]["search_provider"]["search_url"].endswith(token)
-    assert "__TOKEN__" not in js + manifest
+    assert re.search(r'const TOKEN = "([^"]*)"', background).group(1) == token
+    assert "__TOKEN__" not in js + manifest + background
 
 
 def test_setup_sh_rejects_a_link_with_no_project_id(tmp_path):
@@ -171,3 +178,128 @@ def test_setup_sh_rejects_a_link_with_no_project_id(tmp_path):
     result = subprocess.run(["sh", "setup.sh"], cwd=tmp_path, capture_output=True)
     assert result.returncode == 1
     assert not (tmp_path / "extension").exists()
+
+
+# --- Right-click menu -------------------------------------------------------------------------
+
+SELECTION = "First  line of the   selection\nSecond line\n\n\n\nAfter a gap"
+PAGE_URL = "https://example.com/article"
+
+
+def job_prompt(browser, mode):
+    """The prompt the script builds for a job, read from the source."""
+    block = re.search(r"const JOBS = \{.*?\n  \};", SRC.read_text(), re.S).group(0)
+    page = browser.new_page()
+    text = page.evaluate("(j) => { %s; return JOBS[j.mode](j); }" % block,
+                         {"mode": mode, "text": SELECTION, "url": PAGE_URL})
+    page.close()
+    return text
+
+
+def as_paragraphs(text):
+    """What the prompt box should hold: a paragraph per line, spaces collapsed, one blank line at most."""
+    return [re.sub(r"\s+", " ", line) for line in re.sub(r"\n{3,}", "\n\n", text).split("\n")]
+
+
+def with_jobs(script, jobs):
+    """Stands in for the background script, which hands the selected text to the page."""
+    stub = "window.chrome = window.chrome || {}; window.chrome.runtime = {sendMessage: async (m) => (%s)[m.id] || null};"
+    return stub % json.dumps(jobs) + script
+
+
+@pytest.mark.parametrize("mode", ["summarize", "ask"])
+def test_right_click_job_is_typed_and_sent_on_sonnet(browser, mode):
+    prompt = job_prompt(browser, mode)
+    assert SELECTION in prompt and PAGE_URL in prompt
+    jobs = {"j1": {"mode": mode, "text": SELECTION, "url": PAGE_URL}}
+    page, patches = open_site(browser, with_jobs(built(PROJECT), jobs))
+    page.goto("https://claude.ai/new?dupjob=j1")
+    page.wait_for_function("window.sent", timeout=20000)
+    sent = page.evaluate("window.sent")
+    assert sent == {"from": "/new", "paragraphs": as_paragraphs(prompt)}
+    assert sent["paragraphs"][-4:] == ["First line of the selection", "Second line", "", "After a gap"]
+    page.wait_for_timeout(1500)
+    assert patches == [(*MODEL_CALL, {"model": "claude-sonnet-5-5"}), (*MODEL_CALL, {"model": "claude-opus-5-5"})]
+
+
+def test_job_link_with_nothing_waiting_does_nothing(browser):
+    page, patches = open_site(browser, with_jobs(built(PROJECT), {}))
+    page.goto("https://claude.ai/new?dupjob=made-up")
+    page.wait_for_selector('[aria-label="Write your prompt to Claude"]')
+    page.wait_for_timeout(1500)
+    assert page.evaluate("window.sent") is None
+    assert page.evaluate("document.querySelector('[aria-label=\"Write your prompt to Claude\"]').innerText.trim()") == ""
+    assert patches == []
+
+
+@pytest.fixture
+def installed(pw, tmp_path):
+    """The built extension loaded into a real browser profile, with claude.ai replaced by the stand-in."""
+    shutil.copytree(ROOT / "src", tmp_path / "src")
+    shutil.copy(ROOT / "setup.sh", tmp_path)
+    subprocess.run(["sh", "setup.sh"], cwd=tmp_path, check=True, capture_output=True)
+    ext = tmp_path / "extension"
+    ctx = pw.chromium.launch_persistent_context(
+        str(tmp_path / "profile"), channel="chromium", headless=True,
+        # The tab the extension opens starts loading before the stand-in can be attached to it, so
+        # claude.ai is made unreachable: that first load fails, and the test loads the same link again.
+        args=[f"--disable-extensions-except={ext}", f"--load-extension={ext}",
+              "--host-resolver-rules=MAP claude.ai ~NOTFOUND"])
+    ctx.add_cookies([{"name": "lastActiveOrg", "value": ORG, "domain": "claude.ai", "path": "/"}])
+    patches = []
+
+    def handle(route):
+        req = route.request
+        path = req.url.split("claude.ai", 1)[1].split("?")[0]
+        if path.startswith("/api/"):
+            patches.append((req.method, path, json.loads(req.post_data or "{}")))
+            return route.fulfill(status=200, body="{}", content_type="application/json")
+        route.fulfill(status=200, body=PAGE, content_type="text/html")
+
+    ctx.route("https://claude.ai/**", handle)
+    worker = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+    yield ctx, worker, patches, ext
+    ctx.close()
+
+
+def click_menu(ctx, worker, item):
+    """Fires the menu item as a right-click would, and returns the tab it opened, loaded on the stand-in."""
+    worker.evaluate("""() => {
+        const create = chrome.tabs.create.bind(chrome.tabs);
+        chrome.tabs.create = (options) => { self.openedLink = options.url; return create(options); };
+    }""")
+    with ctx.expect_page() as opened:
+        worker.evaluate(
+            "(info) => chrome.contextMenus.onClicked.dispatch(info, undefined)",
+            {"menuItemId": item, "selectionText": SELECTION, "pageUrl": PAGE_URL})
+    page = opened.value
+    page.wait_for_load_state()
+    link = worker.evaluate("self.openedLink")
+    assert link.startswith("https://claude.ai/new?"), link
+    page.goto(link)
+    return page, link
+
+
+@pytest.mark.parametrize("mode", ["summarize", "ask"])
+def test_installed_extension_menu_click_opens_claude_and_sends(browser, installed, mode):
+    ctx, worker, patches, _ = installed
+    page, link = click_menu(ctx, worker, "claude-" + mode)
+    page.wait_for_function("window.sent", timeout=20000)
+    assert page.evaluate("window.sent") == {"from": "/new", "paragraphs": as_paragraphs(job_prompt(browser, mode))}
+    assert patches[0] == (*MODEL_CALL, {"model": "claude-sonnet-5-5"})
+    # The text is handed over once: opening the same link again must not send anything.
+    again = ctx.new_page()
+    again.goto(link)
+    again.wait_for_selector('[aria-label="Write your prompt to Claude"]')
+    again.wait_for_timeout(1500)
+    assert again.evaluate("window.sent") is None
+
+
+def test_installed_extension_search_item_runs_a_normal_search(installed, preamble):
+    ctx, worker, _, ext = installed
+    page, link = click_menu(ctx, worker, "claude-search")
+    token = re.search(r'const TOKEN = "([^"]*)"', (ext / "background.js").read_text()).group(1)
+    assert f"dupsearch={token}" in link
+    page.wait_for_function("window.sent", timeout=20000)
+    head, tail = preamble.split("\n\n")
+    assert page.evaluate("window.sent") == {"from": "/new", "paragraphs": [head, "", tail + re.sub(r"\s+", " ", SELECTION)]}

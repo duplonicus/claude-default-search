@@ -3,6 +3,9 @@
 Type in the address bar, hit Enter, and the question goes straight to Claude on **Sonnet**,
 sent automatically. Your regular claude.ai chats stay on your usual model (Opus, say).
 
+Select text on any page, right-click, and under **Claude** choose **Search with Claude**,
+**Ask about this** or **Summarize**. A new tab opens next to the page and the request is sent for you.
+
 Works in Brave and Chrome. Not affiliated with Anthropic.
 
 ## Why this exists
@@ -18,14 +21,15 @@ Works in Brave and Chrome. Not affiliated with Anthropic.
 
 | | **claude-default-search** | [Claude Search](https://chromewebstore.google.com/detail/claude-search/fjfcehgcbhdcfgempfoafdolienldgbe) | [Claude AI Search](https://chromewebstore.google.com/detail/claude-ai-search/mdpjfhahomdebomifakfombhdjnbahhi) | [Your AI in Search Bar](https://chromewebstore.google.com/detail/your-ai-in-search-bar-cha/hfcilidehpkcnlbplpfkcodijcmoamjn) | [AI Omnibox Search](https://chromewebstore.google.com/detail/ai-omnibox-search/eoglpbkepflokocokpeadckokjpjnice) |
 |---|:-:|:-:|:-:|:-:|:-:|
-| Plain address-bar search (no keyword) | ✅ | ✅ | ❌ (`claude` + space) | ✅ | ❌ (`ai` + space) |
+| Plain address-bar search (no keyword) | ✅ | ✅ | ✅ | ✅ | ❌ (`ai` + space) |
 | Sends automatically | ✅ | ✅ | ✅ | ✅ | — |
 | Searches run on Sonnet | ✅ | — | — | — | — |
 | Restores your usual model after sending | ✅ | — | — | — | — |
 | Send searches to a Claude Project | ✅ | — | — | — | — |
-| Source on GitHub | ✅ | — | — | — | — |
+| Right-click selected text to search, ask or summarize | ✅ | — | ✅ (ask, summarize) | — | — |
+| Source on GitHub | ✅ | — | [✅](https://github.com/farhansrambiyan/claude-ai-search-extension) | — | — |
 
-<sub>Based on each extension's Chrome Web Store listing as of October 2026; "—" means the listing doesn't mention it. Corrections welcome via an issue.</sub>
+<sub>Based on each extension's Chrome Web Store listing as of October 2026, and on the GitHub source where one is linked; "—" means the listing doesn't mention it. Corrections welcome via an issue.</sub>
 
 ## Install
 
@@ -90,7 +94,15 @@ Later messages in the same chat are ordinary follow-ups about the results.
 4. Clicks **Send** as soon as the prompt is filled in.
 5. About a second after the chat is created, sets your model choice back to your usual model.
 
-To change the preamble or the search model, edit `PREAMBLE`, `WANT_ID` and `WANT_NAME` at the top of
+`background.js` adds the right-click menu:
+
+- **Search with Claude** opens the same link an address-bar search would, with the selection as the query.
+- **Ask about this** and **Summarize** keep the selected text and the page's address inside the extension
+  under a one-time id, and open `claude.ai/new` with that id. `autosend.js` collects the text, types the
+  prompt, and sends it on Sonnet. These are ordinary chats; they don't go into the project.
+
+To change the preamble (`PREAMBLE`), the right-click prompts (`JOBS`) or the search model (`WANT_ID`,
+`WANT_NAME`), edit them at the top of
 `src/autosend.js` and run setup again.
 
 ## Security
@@ -98,9 +110,14 @@ To change the preamble or the search model, edit `PREAMBLE`, `WANT_ID` and `WANT
 - Each install gets its own random secret code. Only searches from your address bar carry it.
   A link on any other site won't have it, so claude.ai's normal "use caution" stop still applies.
   Don't share your built `extension` folder; share this repo and let people run setup.
-- The extension requests no browser permissions. It only runs on `https://claude.ai/new*`
+- A right-click request can't be forged by a link either: the selected text never travels in the link,
+  only a one-time id, and an id with no text waiting for it does nothing.
+- The extension asks for two permissions: `contextMenus` for the right-click menu, and `storage` to hold
+  the selected text until the new tab collects it (in memory only; it is cleared when the browser closes).
+  It only runs on `https://claude.ai/new*`
   and `https://claude.ai/project/*`, and only acts on a project page when a search sent it there.
-- It sends nothing anywhere except claude.ai's own model-picker request.
+- It sends nothing anywhere except claude.ai: the model-picker request and the prompt itself. For Ask and
+  Summarize, the prompt includes the address of the page you selected the text on.
 
 ## Limits
 
