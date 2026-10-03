@@ -10,6 +10,7 @@
   label { display: block; font-weight: 600; margin-top: 1.5rem; }
   .hint { margin: 0.2rem 0 0.4rem; opacity: 0.75; }
   input, textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 0.5rem; }
+  select { font: inherit; padding: 0.4rem; }
   textarea { height: 11rem; resize: vertical; }
   #preamble { height: 17rem; }
   .buttons { margin-top: 1.5rem; display: flex; gap: 0.75rem; align-items: center; }
@@ -25,6 +26,10 @@
 <p class="hint">Searches and right-click requests start inside this claude.ai project. Empty means the
 project chosen at setup, or ordinary chats if there was none.</p>
 <input id="projectUrl" type="url" spellcheck="false">
+
+<label for="model">Model</label>
+<p class="hint">Searches and right-click requests run on this model, then your usual model is put back.</p>
+<select id="model"></select>
 
 <label for="preamble">Search prompt</label>
 <p class="hint">Sent with every address-bar search. <code>{query}</code> is what you typed.</p>

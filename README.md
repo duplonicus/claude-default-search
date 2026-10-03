@@ -6,7 +6,8 @@ sent automatically. Your regular claude.ai chats stay on your usual model (Opus,
 Select text on any page, right-click, and under **Claude** choose **Search with Claude**,
 **Ask about this** or **Summarize**. A new tab opens next to the page and the request is sent for you.
 
-The prompts it sends and the project it files chats in can be changed on the extension's options page.
+The prompts it sends, the model it uses and the project it files chats in can be changed on the
+extension's options page.
 
 Works in Brave and Chrome. Not affiliated with Anthropic.
 
@@ -25,7 +26,7 @@ Works in Brave and Chrome. Not affiliated with Anthropic.
 |---|:-:|:-:|:-:|:-:|:-:|
 | Plain address-bar search (no keyword) | ✅ | ✅ | ✅ | ✅ | ❌ (`ai` + space) |
 | Sends automatically | ✅ | ✅ | ✅ | ✅ | — |
-| Searches run on Sonnet | ✅ | — | — | — | — |
+| Choose the model searches run on (Sonnet by default) | ✅ | — | — | — | — |
 | Restores your usual model after sending | ✅ | — | — | — | — |
 | Send searches to a Claude Project | ✅ | — | — | — | — |
 | Right-click selected text to search, ask or summarize | ✅ | — | ✅ (ask, summarize) | — | — |
@@ -85,6 +86,8 @@ Later messages in the same chat are ordinary follow-ups.
 Open the extension's **Details** in `brave://extensions` and click **Extension options**. You can change:
 
 - the **project link**, which overrides the one chosen at setup;
+- the **model** searches and right-click requests run on (Sonnet by default), or "my usual model" to
+  leave the model alone;
 - the **search prompt** sent with every address-bar search (`{query}` is what you typed);
 - the **Ask** and **Summarize** prompts (`{text}` is the selection, `{url}` the page it was on).
 
@@ -120,8 +123,9 @@ the extension's own storage in your browser.
   under a one-time id, and open `claude.ai/new` with that id. `autosend.js` moves to the project page if
   there is one, collects the text, types the prompt, and sends it on Sonnet.
 
-To change the search model, edit `WANT_ID` and `WANT_NAME` at the top of
-`src/autosend.js` and run setup again.
+The model list on the options page is `MODELS` in `src/defaults.js`. Only Sonnet has been tried against
+claude.ai; the others follow the same naming, and if claude.ai doesn't accept one the script falls back to
+clicking the model picker by name.
 
 ## Security
 

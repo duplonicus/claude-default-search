@@ -1,11 +1,9 @@
-// Claude as Default Search, v3.3.
+// Claude as Default Search, v3.4.
 // Address-bar searches carry a secret token. Links from anywhere else don't,
 // so Claude's normal "use caution" stop still applies to them.
-// The prompts and the project come from defaults.js and the options page.
+// The prompts, the model and the project come from defaults.js and the options page.
 (() => {
   const TOKEN = "__TOKEN__";
-  const WANT_ID = "claude-sonnet-5-5"; // model for quick searches
-  const WANT_NAME = "Sonnet";
   const USUAL_KEY = "dupsearch-usual-model";
   const MISS_KEY = "dupsearch-project-miss";
 
@@ -53,10 +51,13 @@
   // What the options page saved, with defaults.js filling the gaps.
   async function settings() {
     let saved = {};
-    try { saved = await chrome.storage.local.get(["preamble", "ask", "summarize", "projectUrl"]); } catch {}
+    try { saved = await chrome.storage.local.get(["preamble", "ask", "summarize", "projectUrl", "model"]); } catch {}
     const pick = (k) => (typeof saved[k] === "string" && saved[k].trim() ? saved[k] : DEFAULTS[k]);
     const project = (String(saved.projectUrl || "").match(PROJECT_ID) || BUILT_PROJECT.match(PROJECT_ID) || [""])[0];
-    return { preamble: pick("preamble"), jobs: { ask: pick("ask"), summarize: pick("summarize") }, project };
+    // The model to switch to, or null to leave your usual model alone.
+    const model = saved.model === NO_SWITCH ? null
+      : MODELS.find((m) => m.id === saved.model) || MODELS.find((m) => m.id === DEFAULTS.model);
+    return { preamble: pick("preamble"), jobs: { ask: pick("ask"), summarize: pick("summarize") }, project, model };
   }
 
   const promptBox = () =>
@@ -103,12 +104,13 @@
     return null;
   }
 
-  // Switches the account to Sonnet, sends whatever getBox() puts in the prompt,
-  // then puts your usual model back once the chat exists.
+  // Switches the account to the search model, sends whatever getBox() puts in
+  // the prompt, then puts your usual model back once the chat exists. With no
+  // search model, it just sends.
   const ABORT = {};
-  async function sendOnSonnet(getBox, onSent) {
+  async function sendOn(model, getBox, onSent) {
     const usual = store.get() || "claude-opus-5-5";
-    await setAccountModel(WANT_ID);
+    if (model) await setAccountModel(model.id);
     const box = await getBox();
     if (box === ABORT) return;
     const send = box && await waitFor(() =>
@@ -116,18 +118,19 @@
     );
 
     // Fallback: if the page still came up on another model, use the picker.
-    if (send && !(pickerLabel() || "").includes(WANT_NAME)) {
+    if (send && model && !(pickerLabel() || "").includes(model.name)) {
       const p = buttons().find((x) => ariaLabel(x).startsWith("Model:"));
       if (p) {
         p.click();
         const item = await waitFor(() =>
           [...document.querySelectorAll('[role="menuitemradio"]')]
-            .find((m) => m.textContent.includes(WANT_NAME)), 2000);
+            .find((m) => m.textContent.includes(model.name)), 2000);
         if (item) item.click();
-        await waitFor(() => (pickerLabel() || "").includes(WANT_NAME), 2000);
+        await waitFor(() => (pickerLabel() || "").includes(model.name), 2000);
       }
     }
     if (send) { send.click(); if (onSent) onSent(); }
+    if (!model) return;
 
     await waitFor(() => location.pathname.startsWith("/chat/"), 8000, 100);
     await sleep(1000);
@@ -139,10 +142,11 @@
   const isSearch = url.searchParams.get("dupsearch") === TOKEN;
 
   // Normal visits: just note which model you usually use, so searches can put it back.
+  // A page showing the search model may be mid-search, so that one isn't noted.
   if (!jobId && !isSearch) {
-    waitFor(pickerLabel, 15000, 250).then((l) => {
+    Promise.all([settings(), waitFor(pickerLabel, 15000, 250)]).then(([cfg, l]) => {
       const id = idFromLabel(l);
-      if (id && !l.includes(WANT_NAME)) store.set(id);
+      if (id && !(cfg.model && l.includes(cfg.model.name))) store.set(id);
     });
     return;
   }
@@ -185,7 +189,8 @@
       const template = job && cfg.jobs[job.mode];
       if (!template) return;
       const text = fillPrompt(template, "text", { text: job.text, url: job.url });
-      sendOnSonnet(
+      sendOn(
+        cfg.model,
         () => (onProject ? typeOnProject(text, link("/new", { dupjob: jobId, dupdirect: 1 })) : typePrompt(text)),
         () => { try { chrome.runtime.sendMessage({ type: "dupjob-done", id: jobId }); } catch {} }
       );
@@ -203,7 +208,7 @@
       location.replace(link(home, { q: prompt, dupsearch: TOKEN, dupdirect: 1 }));
       return;
     }
-    sendOnSonnet(() => (onProject
+    sendOn(cfg.model, () => (onProject
       ? typeOnProject(q, link("/new", { q, dupsearch: TOKEN, dupdirect: 1 }))
       : waitFor(() => { const b = promptBox(); return b && b.innerText.trim() ? b : null; })));
   })();

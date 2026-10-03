@@ -90,7 +90,8 @@ def defaults(browser):
     page = browser.new_page()
     found = page.evaluate("() => { %s; return DEFAULTS; }" % DEFAULTS_SRC.read_text())
     page.close()
-    assert set(found) == {"preamble", "ask", "summarize"}
+    assert set(found) == {"model", "preamble", "ask", "summarize"}
+    assert found["model"] == "claude-sonnet-5-5"
     return found
 
 
@@ -209,6 +210,46 @@ def test_empty_saved_values_mean_the_defaults(browser, defaults):
         "from": f"/project/{PROJECT}",
         "paragraphs": as_paragraphs(search_prompt(defaults, "weather boston")),
     }
+
+
+def test_saved_model_is_the_one_searches_switch_to(browser, defaults):
+    page, patches = open_site(browser, built(saved={"model": "claude-haiku-4-5"}))
+    search(page)
+    assert sent(page)["paragraphs"] == as_paragraphs(search_prompt(defaults, "weather boston"))
+    page.wait_for_timeout(1500)
+    assert patches == [(*MODEL_CALL, {"model": "claude-haiku-4-5"}), (*MODEL_CALL, {"model": "claude-opus-5-5"})]
+
+
+def test_no_switch_sends_without_touching_the_model(browser, defaults):
+    jobs = {"j1": {"mode": "ask", "text": SELECTION, "url": PAGE_URL}}
+    page, patches = open_site(browser, built(PROJECT, jobs=jobs, saved={"model": "none"}))
+    search(page)
+    assert sent(page)["paragraphs"] == as_paragraphs(search_prompt(defaults, "weather boston"))
+    page.goto("https://claude.ai/new?dupjob=j1")
+    assert sent(page)["paragraphs"] == as_paragraphs(job_prompt(defaults, "ask"))
+    page.wait_for_timeout(1500)
+    assert patches == []
+
+
+def test_unknown_saved_model_means_the_default(browser):
+    page, patches = open_site(browser, built(saved={"model": "claude-made-up-9"}))
+    search(page)
+    sent(page)
+    assert patches[0] == (*MODEL_CALL, {"model": "claude-sonnet-5-5"})
+
+
+@pytest.mark.parametrize("saved,noted", [
+    ({}, None),  # the page shows the search model, which may be a search in flight
+    ({"model": "claude-haiku-4-5"}, "claude-sonnet-5-5"),
+    ({"model": "none"}, "claude-sonnet-5-5"),
+])
+def test_normal_visit_notes_the_usual_model_unless_it_is_the_search_model(browser, saved, noted):
+    page, patches = open_site(browser, built(saved=saved))
+    page.goto("https://claude.ai/new")  # the stand-in's picker reads "Model: Sonnet 5.5"
+    page.wait_for_selector(BOX)
+    page.wait_for_timeout(800)
+    assert page.evaluate("localStorage.getItem('dupsearch-usual-model')") == noted
+    assert patches == []
 
 
 # --- Right-click menu -------------------------------------------------------------------------
@@ -343,11 +384,14 @@ def test_installed_extension_search_item_runs_a_normal_search(defaults, installe
 
 
 def test_options_page_shows_defaults_and_its_settings_take_effect(defaults, installed):
-    ctx, worker, _, _ = installed
+    ctx, worker, patches, _ = installed
     options = options_page(ctx, worker)
     for key in ("preamble", "ask", "summarize"):
         assert options.input_value("#" + key) == defaults[key]
     assert options.input_value("#projectUrl") == ""
+    assert options.input_value("#model") == defaults["model"]
+    assert options.eval_on_selector_all("#model option", "els => els.map(e => e.value)") == [
+        "claude-sonnet-5-5", "claude-haiku-4-5", "claude-opus-5-5", "claude-fable-5-1", "none"]
 
     options.fill("#projectUrl", "https://claude.ai/project/nope")
     options.click("#save")
@@ -356,20 +400,23 @@ def test_options_page_shows_defaults_and_its_settings_take_effect(defaults, inst
 
     options.fill("#projectUrl", f"https://claude.ai/project/{OTHER_PROJECT}")
     options.fill("#summarize", "TL;DR this: {text}")
+    options.select_option("#model", "claude-haiku-4-5")
     options.click("#save")
     until(options, "document.getElementById('status').textContent === 'Saved.'")
     # Only what was changed is stored; untouched prompts keep following the defaults.
     assert worker.evaluate("chrome.storage.local.get(null)") == {
         "projectUrl": f"https://claude.ai/project/{OTHER_PROJECT}",
-        "preamble": "", "ask": "", "summarize": "TL;DR this: {text}"}
+        "model": "claude-haiku-4-5", "preamble": "", "ask": "", "summarize": "TL;DR this: {text}"}
 
     page, _ = click_menu(ctx, worker, "claude-summarize")
     assert sent(page) == {"from": f"/project/{OTHER_PROJECT}", "paragraphs": as_paragraphs("TL;DR this: " + SELECTION)}
+    assert patches[0] == (*MODEL_CALL, {"model": "claude-haiku-4-5"})
 
     options.click("#reset")
     until(options, "document.getElementById('status').textContent.startsWith('Prompts reset')")
     assert options.input_value("#summarize") == defaults["summarize"]
     assert options.input_value("#projectUrl") == f"https://claude.ai/project/{OTHER_PROJECT}"
+    assert options.input_value("#model") == "claude-haiku-4-5"
 
 
 # --- setup.sh ---------------------------------------------------------------------------------
