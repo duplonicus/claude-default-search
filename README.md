@@ -14,6 +14,19 @@ Works in Brave and Chrome. Not affiliated with Anthropic.
   from your own address bar (see Security).
 - claude.ai has no URL parameter for the model, so the extension sets the model itself.
 
+## How it compares
+
+| | **claude-default-search** | [Claude Search](https://chromewebstore.google.com/detail/claude-search/fjfcehgcbhdcfgempfoafdolienldgbe) | [Claude AI Search](https://chromewebstore.google.com/detail/claude-ai-search/mdpjfhahomdebomifakfombhdjnbahhi) | [Your AI in Search Bar](https://chromewebstore.google.com/detail/your-ai-in-search-bar-cha/hfcilidehpkcnlbplpfkcodijcmoamjn) | [AI Omnibox Search](https://chromewebstore.google.com/detail/ai-omnibox-search/eoglpbkepflokocokpeadckokjpjnice) |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Plain address-bar search (no keyword) | ✅ | ✅ | ❌ (`claude` + space) | ✅ | ❌ (`ai` + space) |
+| Sends automatically | ✅ | ✅ | ✅ | ✅ | — |
+| Searches run on Sonnet | ✅ | — | — | — | — |
+| Restores your usual model after sending | ✅ | — | — | — | — |
+| Send searches to a Claude Project | ✅ | — | — | — | — |
+| Source on GitHub | ✅ | — | — | — | — |
+
+<sub>Based on each extension's Chrome Web Store listing as of October 2026; "—" means the listing doesn't mention it. Corrections welcome via an issue.</sub>
+
 ## Install
 
 1. Download or clone this repo.
