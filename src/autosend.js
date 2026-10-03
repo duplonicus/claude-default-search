@@ -6,6 +6,10 @@
   const WANT_ID = "claude-sonnet-5-5"; // model for quick searches
   const WANT_NAME = "Sonnet";
   const USUAL_KEY = "dupsearch-usual-model";
+  const MISS_KEY = "dupsearch-project-miss";
+  // Optional: the id of a claude.ai project to file searches in.
+  const PROJECT = "__PROJECT__";
+  const HAS_PROJECT = /^[0-9a-f-]{36}$/.test(PROJECT);
   // Goes in front of every search, so the model knows it's being used as a
   // search engine and isn't handed two bare words with no context.
   const PREAMBLE =
@@ -76,10 +80,18 @@
 
   // Searches arrive as the bare query. Reload once with the preamble in front;
   // claude.ai fills the prompt from the URL, so that is the place to add it.
+  // With a project set, that reload goes to the project's page instead of /new,
+  // so the chat starts inside the project.
+  const searchUrl = (path, query) => {
+    const u = new URL(path, location.origin);
+    u.searchParams.set("q", query);
+    u.searchParams.set("dupsearch", TOKEN);
+    return u.href;
+  };
   const q = url.searchParams.get("q") || "";
+  const onProject = location.pathname.startsWith("/project/");
   if (q && !q.startsWith(PREAMBLE)) {
-    url.searchParams.set("q", PREAMBLE + q);
-    location.replace(url.href);
+    location.replace(searchUrl(HAS_PROJECT ? "/project/" + PROJECT : "/new", PREAMBLE + q));
     return;
   }
 
@@ -92,8 +104,18 @@
     await preset;
     const box = await waitFor(() =>
       [...document.querySelectorAll('[aria-label="Write your prompt to Claude"]')]
-        .find((e) => e.offsetParent !== null && e.innerText.trim())
+        .find((e) => e.offsetParent !== null && e.innerText.trim()),
+      onProject ? 6000 : 15000
     );
+    // The project page didn't fill the prompt: note what was there, then run
+    // the search from /new so it still goes through.
+    if (!box && onProject) {
+      const seen = [...document.querySelectorAll('[contenteditable="true"], textarea')]
+        .map((e) => (ariaLabel(e) || e.tagName) + ((e.innerText || e.value || "").trim() ? " (filled)" : " (empty)"));
+      try { localStorage.setItem(MISS_KEY, new Date().toISOString() + " inputs: " + (seen.join("; ") || "none")); } catch {}
+      location.replace(searchUrl("/new", q));
+      return;
+    }
     const send = box && await waitFor(() =>
       buttons().find((b) => ariaLabel(b) === "Send message" && !b.disabled)
     );

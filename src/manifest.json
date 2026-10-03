@@ -16,7 +16,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://claude.ai/new*"
+        "https://claude.ai/new*",
+        "https://claude.ai/project/*"
       ],
       "js": [
         "autosend.js"
