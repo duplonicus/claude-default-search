@@ -95,37 +95,136 @@ An empty box means the built-in default. Changes apply to the next search; there
 
 ## How it works
 
-`manifest.json` uses `chrome_settings_overrides.search_provider` to make
-`https://claude.ai/new?q={searchTerms}&dupsearch=<your secret code>` the default search.
+*Last checked against the code on 2026-10-09, at commit 314f17c.*
 
-`defaults.js` holds the default prompts, and `options.html` lets you replace them; what you save is kept in
-the extension's own storage in your browser.
+The extension is plain JavaScript with no build tools and no libraries. It never talks to a server of its own. Everything it does happens in your browser, on claude.ai's own pages, using your existing claude.ai login.
 
-`autosend.js` runs on `claude.ai/new` and on project pages:
+It does three things claude.ai has no setting for: it makes Claude the default search engine, it presses Send for you, and it switches the model for that one message and then switches it back.
 
-1. **Normal visits:** notes which model your picker is on (your "usual" model), stored in claude.ai's localStorage.
-2. **Searches (secret code present):** reloads the page once with the search prompt in front of your query,
-   telling Claude the text came from the address bar and should be handled as a web search: answer first,
-   then links. Without it, Claude gets two bare keywords and has to guess what you want.
-   With a project set, that reload goes to the project's page. Project pages don't fill the prompt from the
-   URL, so the script types it into the prompt box itself; if that fails it runs the search from
-   `claude.ai/new` instead.
-3. At page start, sets your claude.ai model choice to Sonnet with the same request the model picker makes
-   (`PATCH /api/organizations/<org>/model_selector_state/chat`), so the page opens on Sonnet with no clicking.
-   If it still opens on another model, it falls back to clicking the picker.
-4. Clicks **Send** as soon as the prompt is filled in.
-5. About a second after the chat is created, sets your model choice back to your usual model.
+### The pieces
 
-`background.js` adds the right-click menu:
+| File | What it is | What it does |
+|---|---|---|
+| `manifest.json` | Manifest V3 | Sets the default search engine to `https://claude.ai/new?q={searchTerms}&dupsearch=<your secret code>`, and registers the other files. Permissions: `contextMenus`, `storage`. |
+| `autosend.js` | Content script | Runs at the very start of every load of `claude.ai/new*` and `claude.ai/project/*`. Decides what kind of visit this is, then fills the prompt, switches the model and clicks Send. |
+| `background.js` | Service worker | Adds the right-click menu, opens the new tab, and holds the selected text until the tab has sent it. |
+| `defaults.js` | Shared constants | The default prompts, the model list, the project id chosen at setup, and `fillPrompt`, which puts the values into a prompt. Loaded by both the content script and the options page. |
+| `options.html`, `options.js` | Options page | Edits the project link, the model and the three prompts. |
+| `setup.sh`, `setup.ps1` | Build scripts | Copy `src/` to `extension/` with your secret code and project id filled in. |
 
-- **Search with Claude** opens the same link an address-bar search would, with the selection as the query.
-- **Ask about this** and **Summarize** keep the selected text and the page's address inside the extension
-  under a one-time id, and open `claude.ai/new` with that id. `autosend.js` moves to the project page if
-  there is one, collects the text, types the prompt, and sends it on Sonnet.
+### What `autosend.js` does when a page loads
 
-The model list on the options page is `MODELS` in `src/defaults.js`. All four were tried against claude.ai
-in October 2026. If claude.ai stops accepting one, the script falls back to clicking the model picker by
-name.
+The script looks at the link the page was opened with and takes one of three paths.
+
+```mermaid
+flowchart TD
+    A[Page loads on claude.ai/new or a project page] --> B{What is in the link?}
+    B -->|no secret code, no job id| N[Normal visit: note which model the picker shows]
+    B -->|the secret code| S{Is dupdirect=1 in the link?}
+    B -->|a job id from the right-click menu| J{Project set, and not tried yet?}
+    S -->|no, first load| R[Reload once with the search prompt in front of the query]
+    S -->|yes, second load| SEND[Switch model, fill the prompt, click Send, put the model back]
+    J -->|yes| JR[Reload on the project page with the same job id]
+    J -->|no| JG{Is text waiting under this id?}
+    JG -->|no| X[Do nothing]
+    JG -->|yes| SEND
+    SEND -->|prompt would not go into a project page| F[Reload on claude.ai/new with dupdirect=1]
+```
+
+A link with the wrong code, or no code, is a normal visit. A link with the right code but an empty query does nothing.
+
+### An address-bar search, step by step
+
+1. You type in the address bar. The browser opens `claude.ai/new?q=<what you typed>&dupsearch=<code>`.
+2. `autosend.js` sees the code. It builds the full prompt (the search prompt with your query in place of `{query}`) and reloads once, with that prompt in `q` and `dupdirect=1` added. With a project set, the reload goes to `claude.ai/project/<id>`; otherwise to `claude.ai/new`.
+3. On the second load it reads your usual model from localStorage (Opus 5.5 if none has been noted yet).
+4. It sets the account's model to the search model with `PATCH /api/organizations/<org>/model_selector_state/chat`. The org id comes from claude.ai's `lastActiveOrg` cookie.
+5. It gets the prompt into the box:
+   - On `claude.ai/new`, claude.ai fills the box from `q`. The script waits up to 15 seconds for text to appear.
+   - On a project page, nothing fills the box, so the script types the prompt itself (next section).
+6. It waits up to 15 seconds for an enabled **Send message** button.
+7. If the model picker's label does not name the search model, it opens the picker and clicks the menu item with that name.
+8. It clicks Send.
+9. It waits up to 8 seconds for the address to change to `/chat/...`, waits 1 more second, and sets the account's model back to your usual one.
+
+With the model set to "my usual model", steps 4, 7 and 9 are skipped.
+
+If the prompt or the Send button never shows up, nothing is sent, and the model is still put back.
+
+### A right-click request, step by step
+
+**Search with Claude** is an address-bar search: the selection is squeezed onto one line and opened with the same link and code.
+
+**Ask about this** and **Summarize** work differently, because the selected text never goes in a link:
+
+1. `background.js` makes a random id and stores `{mode, text, page address}` under `job-<id>` in the extension's session storage.
+2. It opens `claude.ai/new?dupjob=<id>` in a new tab next to the page you were on.
+3. `autosend.js` sees the id. With a project set, it reloads on the project page with the same id.
+4. It asks the background script for the text by message. The background script answers only messages from this extension.
+5. If nothing is waiting under that id, the script stops. That is what happens to a `dupjob` link from anywhere else.
+6. It fills the Ask or Summarize prompt and types it into the box. This is typed on `claude.ai/new` too, since the text is not in the link.
+7. It switches the model, clicks Send and puts the model back, the same way a search does.
+8. Once Send is clicked, it tells the background script, which deletes the stored text.
+
+`fillPrompt` replaces the placeholders in one pass, so selected text that itself contains `{text}` or `{url}` is sent as written. A saved prompt that leaves out its main placeholder still gets the value, on its own line at the end.
+
+### Typing into the prompt box
+
+The box is a rich-text editor, so setting its text directly would not register. The script does what a keyboard would:
+
+1. Find the visible element labelled "Write your prompt to Claude" and focus it.
+2. Select all, then insert the prompt one line at a time with `execCommand("insertText")`, with `insertParagraph` between lines.
+3. If the text is not there afterwards, send the box a paste event carrying the whole prompt.
+4. Wait 250 ms and check again, because the page can wipe the box while it finishes loading. Repeat for up to 10 seconds.
+
+Runs of spaces are collapsed to one space, and three or more line breaks become two.
+
+If this fails on a project page, the script writes a note to localStorage (which methods it tried and which inputs were on the page) and reloads on `claude.ai/new` with `dupdirect=1`, so the request still goes out as an ordinary chat.
+
+### Where settings come from
+
+Each value is taken from the first place that has it.
+
+| Setting | 1. Options page | 2. Setup | 3. Built in |
+|---|---|---|---|
+| Project | The project link you saved | `PROJECT_URL` in `.env`, baked in by the setup script | None: ordinary chats |
+| Model | The model you picked, or "my usual model" | | Sonnet 5.5 |
+| Search, Ask and Summarize prompts | Your saved text | | `DEFAULTS` in `defaults.js` |
+
+The options page saves an empty value for anything that still matches the default, so a later change to the defaults reaches you. A saved model that is not in `MODELS` counts as the default.
+
+The model list on the options page is `MODELS` in `src/defaults.js`: Sonnet 5.5, Haiku 4.5, Opus 5.5 and Fable 5.1. All four were tried against claude.ai in October 2026.
+
+### What is stored, and where
+
+| Store | Key | Holds | Lives until |
+|---|---|---|---|
+| Extension storage, local | `projectUrl`, `model`, `preamble`, `ask`, `summarize` | What you saved on the options page | You change it or remove the extension |
+| Extension storage, session (memory only) | `job-<id>` | Selected text, the mode and the page address for one right-click request | Send is clicked, or the browser closes |
+| claude.ai's localStorage | `dupsearch-usual-model` | The model id to put back after a search | Overwritten on your next normal visit |
+| claude.ai's localStorage | `dupsearch-project-miss` | A note from the last time typing into a project page failed | Overwritten by the next failure |
+| Your claude.ai account | model picker state | The model new chats open on. Changed for a search, then changed back. | |
+
+The usual model is learned from normal visits: the script reads the picker's label (for example "Model: Opus 5.5") and turns it into an id (`claude-opus-5-5`). A page showing the search model is not noted, because it may be a search in progress.
+
+### How the secret code gets in
+
+The source has two placeholders, `__TOKEN__` and `__PROJECT__`. The setup scripts make 12 random bytes (24 hex characters), then copy every file in `src/` to `extension/` with the placeholders replaced. The code ends up in three files: the search link in `manifest.json`, `background.js` and `autosend.js`.
+
+`extension/` and `.env` are in `.gitignore`, so a built copy and its code are never committed. Running setup again makes a new code.
+
+### Decisions and what they cost
+
+| Decision | What it costs |
+|---|---|
+| A secret code per install, baked in at build time. Only links carrying it are sent automatically. | There is no ready-made package to install: everyone runs setup. The code is part of the search link, so it is in the browser's history. |
+| The search prompt is added by reloading with it in `q`, because claude.ai fills the prompt from the link. | One extra page load per search, and the prompt shows above your query in the chat. |
+| The model is switched on the account, with the request claude.ai's own picker makes, and switched back after sending. | The call is undocumented. The switch is account-wide until the switch back, so a chat opened elsewhere in that window can start on the search model. If the tab closes before the switch back, the account stays on the search model. |
+| The usual model is learned by reading the picker's label on normal visits. | Until a normal visit has been seen, the model put back is Opus 5.5. |
+| Selected text waits in the extension under a one-time id and is fetched by message. | It needs the service worker and the `storage` permission. Text that is never sent stays in memory until the browser closes. |
+| Page elements are found by their labels ("Model: ...", "Send message", "Write your prompt to Claude"). | A label change on claude.ai stops that step. The tests cannot see such a change. |
+| No build tools: the setup scripts are a text replace. | There are two scripts to keep in step, and only `setup.sh` is covered by the tests. |
+| An options value equal to the default is saved as empty. | You cannot pin today's default text against a later change. |
 
 ## Security
 
